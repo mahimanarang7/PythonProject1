@@ -10,6 +10,7 @@ import sqlite3
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, timedelta
+from sklearn.preprocessing import StandardScaler
 
 
 # Initialize Typer app
@@ -27,13 +28,22 @@ def loading_file() -> pd.DataFrame:
     )
     # Load data from DB
     with SessionLocal() as session:
-        df = pd.read_sql_table("energy_set_prepped", con=engine)
+        df = pd.read_sql_table("energy_set_prep", con=engine)
     return df
 
+
 df = loading_file()
+
+def plot_time_vs_price_initial() :
+    # plot the chart for time and price actual averaged by per month
+    daily_meanx = df.groupby(df['time'].dt.to_period('M')).mean()
+    daily_meanx.index = daily_meanx.index.to_timestamp()
+    plt.plot(daily_meanx.index, daily_meanx["price actual"])
+    plt.show()
+
 #split the data into train and test by the date as this is timeseries data
-train_df = df[df['time'] < '2018-01-01 00:00:00']
-test_df = df[df['time'] >= '2018-01-01 00:00:00']
+train_df = df[df['time'] < '2018-07-01 00:00:00']
+test_df = df[df['time'] >= '2018-07-01 00:00:00']
 
 print(test_df.head())
 
@@ -65,12 +75,7 @@ def save_model(model: RandomForestRegressor, file_path: str):
     print(f"Model saved to {file_path}")
 
 def save_predictions(predictions: pd.DataFrame, database_path: str, table_name: str):
-    """
-    Save predictions to a database table.
-    :param predictions: DataFrame containing predictions.
-    :param database_path: Path to the SQLite database file.
-    :param table_name: Name of the table to save predictions.
-    """
+
     conn = sqlite3.connect(database_path)
     predictions.to_sql(table_name, conn, if_exists='replace', index=False)
     conn.close()
@@ -104,16 +109,25 @@ def make_predictions(initial_date: str, n_time_units: int, model: RandomForestRe
 
 
 # Function to plot predictions vs. real data
-def plot_predictions_vs_real(predictions: pd.DataFrame, real_data: pd.DataFrame):
-    # Plotting code here
-    plt.plot(predictions, label='Predictions')
-    plt.plot(real_data, label='Real Data')
-    plt.xlabel('Time')
-    plt.ylabel('Values')
-    plt.title('Predictions vs. Real Data')
+def plot_predictions_vs_real(predictions_df: pd.DataFrame, actual_df: pd.DataFrame):
+    # Plot the results
+    # Group by date and calculate the mean price for predicted and actual prices
+    predicted_daily_mean = predictions_df.groupby(predictions_df['time'].dt.to_period('M'))['prediction'].mean()
+    actual_daily_mean = actual_df.groupby(actual_df['time'].dt.to_period('M'))['price actual'].mean()
+    # Convert PeriodIndex to datetime
+    predicted_daily_mean.index = predicted_daily_mean.index.to_timestamp()
+    actual_daily_mean.index = actual_daily_mean.index.to_timestamp()
+    # Plot the results
+    plt.figure(figsize=(10, 6))
+    plt.plot(predicted_daily_mean.index, predicted_daily_mean, label='Predicted Price', color='blue')
+    plt.plot(actual_daily_mean.index, actual_daily_mean, label='Actual Price', color='red')
+    plt.xlabel('Date')
+    plt.ylabel('Price')
+    plt.title('Average Actual vs. Predicted Prices')
     plt.legend()
+    plt.grid(True)
     plt.show()
-
+    return plt
 
 
 # CLI commands
@@ -126,18 +140,26 @@ def train_model_and_save() -> None:
 @app.command("make-predictions")
 def predict_and_save():
     model = joblib.load("model.pkl")
-    initial_date = "2018-01-01 00:00:00"
-    n_time_units = 24*31
+    initial_date = "2018-07-01 00:00:00"
+    n_time_units = 24*31*5
     predictions = make_predictions(initial_date, n_time_units, model, test_df)
-    save_predictions(predictions, "energy.db", "predicted_prices")
+    save_predictions(predictions, "energy.db", "predicted_data")
 
 @app.command("plot-predictions")
 def plot_predictions():
     #get predictions through table in database predicted_prices
     conn = sqlite3.connect('energy.db')
-    predictions = pd.read_sql_query("SELECT price FROM predicted_prices", conn)
-    df = pd.read_sql_query("SELECT price actual FROM energy_set_prepped", conn)
-    plot_predictions_vs_real(predictions, df['price actual'])
+    predictions = pd.read_sql_query("SELECT * FROM predicted_data", conn)
+    actual = pd.read_sql_query("SELECT * FROM energy_set_prep", conn)
+    # predictions_df = predictions[['time', 'prediction']]
+    # actual_df = actual[['time', 'price actual']]
+    print(predictions.dtypes)
+    print(actual.dtypes)
+    predictions['time'] = pd.to_datetime(predictions['time'])
+    actual['time'] = pd.to_datetime(actual['time'])
+    print(predictions.head())
+    print(actual.head())
+    plot1 = plot_predictions_vs_real(predictions, actual)
 
 
 if __name__ == "__main__":
