@@ -1,6 +1,9 @@
 Briefing about the Python Project:
 (MBD-S2 : Group 7)
 
+https://github.com/mahimanarang7/pythonProject1
+
+
 DATA:
 The dataset taken is a timeseries dataset on the electricity prices from Kaggle : https://www.kaggle.com/datasets/nicholasjhana/energy-consumption-generation-prices-and-weather?resource=download
 The dataset contains hourly data of 4 years from 2015-2018.
